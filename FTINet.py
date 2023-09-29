@@ -86,73 +86,6 @@ class CIformer(nn.Module):
         return x.contiguous()
 
 
-
-class DropBlock2D(nn.Module):
-    #
-    def __init__(self, drop_prob, block_size):
-        super(DropBlock2D, self).__init__()
-        self.drop_prob = drop_prob  # 0.1
-        self.block_size = block_size  # 3
-
-    def forward(self, x):  # 256.128.5.5
-        assert x.dim() == 4, \
-            "Expected input with 4 dimensions (bsize, channels, height, width)"
-
-        if not self.training or self.drop_prob == 0.:
-            return x
-        else:
-            gamma = self._compute_gamma(x)
-            # sample mask
-            # 256.5.5    torch.rand返回服从均匀分布的初始化后的tenosr
-            mask = (torch.rand(x.shape[0], *x.shape[2:]) < gamma).float()
-            # x.device=cuda:0
-            mask = mask.to(x.device)  # 256.5.5
-            block_mask = self._compute_block_mask(mask)  # 256.5.5
-            out = x * block_mask[:, None, :, :]
-            # a=block_mask.numel()#numel()函数：返回数组中元素的个数
-            # b=block_mask.sum()
-            out = out * block_mask.numel() / block_mask.sum()  # 256.128.5.5
-            return out
-
-    def _compute_block_mask(self, mask):
-        # put = mask[:, None, :, :]#256.1.5.5
-        # block_mask  256.1.5.5
-        block_mask = F.max_pool2d(input=mask[:, None, :, :],
-                                  kernel_size=(self.block_size, self.block_size),
-                                  stride=(1, 1),
-                                  padding=self.block_size // 2)
-
-        if self.block_size % 2 == 0:
-            block_mask = block_mask[:, :, :-1, :-1]
-        block_mask = 1 - block_mask.squeeze(1)  # 256.5.5
-        return block_mask
-
-    def _compute_gamma(self, x):
-        return self.drop_prob / (self.block_size ** 2)
-
-
-class LinearScheduler(nn.Module):
-    #
-    def __init__(self, dropblock, start_value, stop_value, nr_steps):  # 5000
-        super(LinearScheduler, self).__init__()
-        self.dropblock = dropblock
-        self.i = 0
-        # np.linspace主要用来创建等差数列
-        # 5000
-        self.drop_values = np.linspace(start=start_value,
-                                       stop=stop_value, num=int(nr_steps))
-        # print('k1')
-
-    def forward(self, x):
-        return self.dropblock(x)
-
-    def step(self):
-        if self.i < len(self.drop_values):
-            self.dropblock.drop_prob = self.drop_values[self.i]
-
-        self.i += 1
-
-
 class FTINet(nn.Module):
     def __init__(self, input_channels, num_nodes, num_classes, patch_size, drop_prob=0.1, block_size=3):
         super(FTINet, self).__init__()
@@ -204,8 +137,6 @@ class FTINet(nn.Module):
 
     def forward(self, x):
         x = x.squeeze(1)
-
-        self.dropblock.step()
         x1 = F.leaky_relu(self.conv2(x))
         x1 = self.bn2(x1)
 
